@@ -594,3 +594,55 @@ get_cpp_target_info = aspect(
     fragments = ["cpp"],
     required_aspect_providers = [[CcInfo]],
 )
+
+
+
+
+
+
+# bazel build  //runner --subcommands  --aspects aspects/semanticdb.bzl%semanticdb_aspect --output_groups=semdb --define=execroot=$(realpath bazel-$(basename $(pwd))) --define=semdb_path=$(cs fetch com.sourcegraph:semanticdb-javac:0.7.8 --classpath) --define=semdb_output=$(pwd)/semdb --nojava_header_compilation
+
+Jcc = provider(
+    fields = {
+        "jcc" : "jcc"
+    }
+)
+
+def _semanticdb_aspect(target, ctx):
+    plugin_jar = ctx.var["semdb_path"]
+    semdb_output = ctx.var["semdb_output"]
+    execroot = ctx.var["execroot"]
+    java_exec=ctx.rule.attr._java_toolchain.java_toolchain.java_runtime.java_executable_exec_path
+    jvm_opt= ctx.rule.attr._java_toolchain.java_toolchain.jvm_opt
+    toolchain=ctx.rule.attr._java_toolchain.java_toolchain
+    inputs = depset(ctx.rule.attr.srcs[0].files.to_list())
+    semjar = ctx.actions.declare_file("semanticdb_plugin.jar") #todo, logs from plugin are silenced
+    semdbJavaInfo = JavaInfo(semjar, semjar)
+    ctx.actions.run_shell( # todo use actions.symlink
+        command="ln -s {} {} ".format(plugin_jar, semjar.path),
+        outputs=[semjar]
+        )
+    out = ctx.actions.declare_file(ctx.label.name + "-with-semdb.jar")
+    deps = [d for dep in ctx.rule.attr.deps for d in dep[Jcc].jcc]
+    jcc = java_common.compile(
+        ctx,
+        deps = deps,
+        output = out,
+        plugins = [JavaPluginInfo([semdbJavaInfo], processor_class = None)],
+        java_toolchain = ctx.rule.attr._java_toolchain.java_toolchain,
+        source_files = inputs.to_list(),
+        javac_opts = ["\"-Xplugin:semanticdb -sourceroot:{} -verbose -targetroot:{}\"".format(execroot, semdb_output)],
+    )
+    return [
+        OutputGroupInfo(
+            semdb = ([out])
+        ),
+        Jcc(jcc = [jcc] + deps)
+    ]
+
+semanticdb_aspect = aspect(
+    implementation = _semanticdb_aspect,
+    attr_aspects = ["deps"],
+    fragments = ["java"],
+    host_fragments = ["java"]
+)
