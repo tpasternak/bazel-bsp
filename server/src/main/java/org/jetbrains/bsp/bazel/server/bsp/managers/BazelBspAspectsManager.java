@@ -27,14 +27,11 @@ public class BazelBspAspectsManager {
     this.aspectsResolver = aspectResolver;
   }
 
+
   public BepOutput fetchFilesFromOutputGroups(
       TargetsSpec targetSpecs, String aspect, Seq<String> outputGroups) {
     try {
-      var pwd = Paths.get(System.getProperty("user.dir"));
-      var execroot = Paths.get("bazel-" + pwd.getFileName()).toRealPath();
-      var semdbPluginProcess = Runtime.getRuntime().exec(new String[]{"cs", "fetch", "com.sourcegraph:semanticdb-javac:0.7.8", "--classpath"});
-      semdbPluginProcess.waitFor();
-      var semdbPluginPath = CharStreams.toString(new InputStreamReader(semdbPluginProcess.getInputStream(), Charsets.UTF_8)).strip().trim();
+      Array<String> aspectFlags = semanticDbFlags(aspectsResolver);
 
       var result =
               bazelBspCompilationManager.buildTargetsWithBep(
@@ -45,17 +42,30 @@ public class BazelBspAspectsManager {
                               BazelFlag.aspect(aspectsResolver.resolveLabel(aspect)),
                               BazelFlag.outputGroups(outputGroups.toJavaList()),
                               BazelFlag.keepGoing(),
-                              "--subcommands",
-                              BazelFlag.aspect(aspectsResolver.resolveLabel("semanticdb_aspect")),
-                              "--output_groups=semdb",
-                              "--define=execroot=" + execroot,
-                              "--define=semdb_path=" + semdbPluginPath,
-                              "--define=semdb_output=" + pwd.resolve("semdb"),
-                              "--nojava_header_compilation",
-                              BazelFlag.color(true)));
+                              BazelFlag.color(true)).appendAll(aspectFlags));
       return result.bepOutput();
     } catch (IOException | InterruptedException e) {
       throw new RuntimeException(e);
     }
+  }
+
+  public static Array<String> semanticDbFlags(InternalAspectsResolver aspectsResolver) throws IOException, InterruptedException {
+    var pwd = Paths.get(System.getProperty("user.dir"));
+    var execroot = Paths.get("bazel-" + pwd.getFileName()).toRealPath();
+    var semdbPluginProcess = Runtime.getRuntime().exec(new String[]{"cs", "fetch", "com.sourcegraph:semanticdb-javac:0.7.8", "--classpath"});
+    semdbPluginProcess.waitFor();
+    var semdbPluginPath = CharStreams.toString(new InputStreamReader(semdbPluginProcess.getInputStream(), Charsets.UTF_8)).strip().trim();
+    var aspectFlags = Array.of(
+            BazelFlag.repositoryOverride(
+                    Constants.ASPECT_REPOSITORY, aspectsResolver.getBazelBspRoot()),
+            "--subcommands",
+            BazelFlag.aspect(aspectsResolver.resolveLabel("semanticdb_aspect")),
+            "--output_groups=semdb",
+            "--define=execroot=" + execroot,
+            "--define=semdb_path=" + semdbPluginPath,
+            "--define=semdb_output=" + pwd.resolve("semdb"),
+            "--nojava_header_compilation"
+    );
+    return aspectFlags;
   }
 }

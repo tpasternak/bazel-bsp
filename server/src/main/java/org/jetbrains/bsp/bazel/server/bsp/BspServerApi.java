@@ -42,6 +42,7 @@ import ch.epfl.scala.bsp4j.TestResult;
 import ch.epfl.scala.bsp4j.WorkspaceBuildTargetsResult;
 import java.util.concurrent.CompletableFuture;
 import org.jetbrains.bsp.bazel.server.bsp.services.CppBuildServerService;
+import org.jetbrains.bsp.bazel.server.bsp.utils.InternalAspectsResolver;
 import org.jetbrains.bsp.bazel.server.sync.ExecuteService;
 import org.jetbrains.bsp.bazel.server.sync.ProjectSyncService;
 
@@ -53,18 +54,20 @@ public class BspServerApi
   private final ProjectSyncService projectSyncService;
   private final ExecuteService executeService;
   private final CppBuildServerService cppBuildServerService;
+  private InternalAspectsResolver aspectsResolver;
 
   public BspServerApi(
-      BazelBspServerLifetime serverLifetime,
-      BspRequestsRunner runner,
-      ProjectSyncService projectSyncService,
-      ExecuteService executeService,
-      CppBuildServerService cppBuildServerService) {
+          BazelBspServerLifetime serverLifetime,
+          BspRequestsRunner runner,
+          ProjectSyncService projectSyncService,
+          ExecuteService executeService,
+          CppBuildServerService cppBuildServerService, InternalAspectsResolver aspectsResolver) {
     this.serverLifetime = serverLifetime;
     this.runner = runner;
     this.projectSyncService = projectSyncService;
     this.executeService = executeService;
     this.cppBuildServerService = cppBuildServerService;
+    this.aspectsResolver = aspectsResolver;
   }
 
   @Override

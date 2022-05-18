@@ -1,42 +1,42 @@
 package org.jetbrains.bsp.bazel.server.sync;
 
-import static org.jetbrains.bsp.bazel.server.sync.BspMappings.getModules;
-import static org.jetbrains.bsp.bazel.server.sync.BspMappings.toBspUri;
-
-import ch.epfl.scala.bsp4j.BuildTargetIdentifier;
-import ch.epfl.scala.bsp4j.CleanCacheParams;
-import ch.epfl.scala.bsp4j.CleanCacheResult;
-import ch.epfl.scala.bsp4j.CompileParams;
-import ch.epfl.scala.bsp4j.CompileResult;
-import ch.epfl.scala.bsp4j.RunParams;
-import ch.epfl.scala.bsp4j.RunResult;
-import ch.epfl.scala.bsp4j.TestParams;
-import ch.epfl.scala.bsp4j.TestResult;
+import ch.epfl.scala.bsp4j.*;
+import io.vavr.collection.Array;
+import io.vavr.collection.List;
 import io.vavr.collection.Set;
-import java.util.Collections;
 import org.eclipse.lsp4j.jsonrpc.ResponseErrorException;
 import org.eclipse.lsp4j.jsonrpc.messages.ResponseError;
 import org.eclipse.lsp4j.jsonrpc.messages.ResponseErrorCode;
 import org.jetbrains.bsp.bazel.bazelrunner.BazelProcessResult;
 import org.jetbrains.bsp.bazel.bazelrunner.BazelRunner;
+import org.jetbrains.bsp.bazel.server.bsp.managers.BazelBspAspectsManager;
 import org.jetbrains.bsp.bazel.server.bsp.managers.BazelBspCompilationManager;
+import org.jetbrains.bsp.bazel.server.bsp.utils.InternalAspectsResolver;
 import org.jetbrains.bsp.bazel.server.sync.model.Module;
 import org.jetbrains.bsp.bazel.server.sync.model.Tag;
 import org.jetbrains.bsp.bazel.workspacecontext.TargetsSpec;
+
+import java.io.IOException;
+import java.util.Collections;
+
+import static org.jetbrains.bsp.bazel.server.sync.BspMappings.getModules;
+import static org.jetbrains.bsp.bazel.server.sync.BspMappings.toBspUri;
 
 public class ExecuteService {
 
   private final BazelBspCompilationManager compilationManager;
   private final ProjectProvider projectProvider;
   private final BazelRunner bazelRunner;
+  private final InternalAspectsResolver aspectsResolver;
 
   public ExecuteService(
-      BazelBspCompilationManager compilationManager,
-      ProjectProvider projectProvider,
-      BazelRunner bazelRunner) {
+          BazelBspCompilationManager compilationManager,
+          ProjectProvider projectProvider,
+          BazelRunner bazelRunner, InternalAspectsResolver aspectsResolver) {
     this.compilationManager = compilationManager;
     this.projectProvider = projectProvider;
     this.bazelRunner = bazelRunner;
+    this.aspectsResolver = aspectsResolver;
   }
 
   public CompileResult compile(CompileParams params) {
@@ -105,8 +105,15 @@ public class ExecuteService {
 
   private BazelProcessResult build(Set<BuildTargetIdentifier> bspIds) {
     var targetsSpec = new TargetsSpec(bspIds.toJavaList(), Collections.emptyList());
-
-    return compilationManager.buildTargetsWithBep(targetsSpec).processResult();
+    Array<String> semanticdbFlags;
+    try {
+      semanticdbFlags = BazelBspAspectsManager.semanticDbFlags(aspectsResolver);
+    } catch (IOException | InterruptedException e) {
+      throw new RuntimeException(e);
+    }
+    return compilationManager
+            .buildTargetsWithBep(targetsSpec, semanticdbFlags)
+            .processResult();
   }
 
   private Set<BuildTargetIdentifier> selectTargets(java.util.List<BuildTargetIdentifier> targets) {

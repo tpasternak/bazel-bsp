@@ -63,7 +63,7 @@ public class BazelBspServer {
     var projectSyncService =
         new ProjectSyncService(bspProjectMapper, serverContainer.projectProvider);
     var executeService =
-        new ExecuteService(compilationManager, serverContainer.projectProvider, bazelRunner);
+        new ExecuteService(compilationManager, serverContainer.projectProvider, bazelRunner, serverContainer.aspectsResolver);
     var cppBuildServerService = new CppBuildServerService();
     var serverLifetime = new BazelBspServerLifetime();
     var bspRequestsRunner = new BspRequestsRunner(serverLifetime);
@@ -74,7 +74,8 @@ public class BazelBspServer {
             bspRequestsRunner,
             projectSyncService,
             executeService,
-            cppBuildServerService);
+            cppBuildServerService,
+                serverContainer.aspectsResolver);
   }
 
   public static ServerContainer makeProjectProvider(
@@ -128,7 +129,8 @@ public class BazelBspServer {
         bazelInfo,
         bazelRunner,
         compilationManager,
-        languagePluginsService);
+        languagePluginsService,
+            aspectsResolver);
   }
 
   public void startServer(BspIntegrationData bspIntegrationData) {
@@ -165,20 +167,22 @@ public class BazelBspServer {
     public final BazelRunner bazelRunner;
     public final BazelBspCompilationManager compilationManager;
     public final LanguagePluginsService languagePluginsService;
+    private InternalAspectsResolver aspectsResolver;
 
     ServerContainer(
-        ProjectProvider projectProvider,
-        BspClientLogger bspClientLogger,
-        BazelInfo bazelInfo,
-        BazelRunner bazelRunner,
-        BazelBspCompilationManager compilationManager,
-        LanguagePluginsService languagePluginsService) {
+            ProjectProvider projectProvider,
+            BspClientLogger bspClientLogger,
+            BazelInfo bazelInfo,
+            BazelRunner bazelRunner,
+            BazelBspCompilationManager compilationManager,
+            LanguagePluginsService languagePluginsService, InternalAspectsResolver aspectsResolver) {
       this.projectProvider = projectProvider;
       this.bspClientLogger = bspClientLogger;
       this.bazelInfo = bazelInfo;
       this.bazelRunner = bazelRunner;
       this.compilationManager = compilationManager;
       this.languagePluginsService = languagePluginsService;
+      this.aspectsResolver = aspectsResolver;
     }
   }
 }
