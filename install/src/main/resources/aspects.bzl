@@ -609,13 +609,17 @@ Jcc = provider(
 )
 
 def _semanticdb_aspect(target, ctx):
+    if (not hasattr(ctx.rule.attr, "_java_toolchain")) or (not hasattr(ctx.rule.attr, "srcs")):
+      return []
+    print (ctx.build_file_path + " / " + ctx.label.name)
     plugin_jar = ctx.var["semdb_path"]
     semdb_output = ctx.var["semdb_output"]
     execroot = ctx.var["execroot"]
+    print("execroot={}".format(execroot))
     java_exec=ctx.rule.attr._java_toolchain.java_toolchain.java_runtime.java_executable_exec_path
     jvm_opt= ctx.rule.attr._java_toolchain.java_toolchain.jvm_opt
     toolchain=ctx.rule.attr._java_toolchain.java_toolchain
-    inputs = depset(ctx.rule.attr.srcs[0].files.to_list())
+    inputs = depset([x for src in ctx.rule.attr.srcs for x in src.files.to_list()])
     semjar = ctx.actions.declare_file("semanticdb_plugin.jar") #todo, logs from plugin are silenced
     semdbJavaInfo = JavaInfo(semjar, semjar)
     ctx.actions.run_shell( # todo use actions.symlink
@@ -623,16 +627,17 @@ def _semanticdb_aspect(target, ctx):
         outputs=[semjar]
         )
     out = ctx.actions.declare_file(ctx.label.name + "-with-semdb.jar")
-    deps = [d for dep in ctx.rule.attr.deps for d in dep[Jcc].jcc]
+    deps = [d for dep in ctx.rule.attr.deps for d in (dep[Jcc].jcc if Jcc in dep else []) + ([dep[JavaInfo]] if JavaInfo in dep else [])]
     jcc = java_common.compile(
         ctx,
         deps = deps,
         output = out,
         plugins = [JavaPluginInfo([semdbJavaInfo], processor_class = None)],
         java_toolchain = ctx.rule.attr._java_toolchain.java_toolchain,
-        source_files = inputs.to_list(),
+        source_files = inputs.to_list() ,
         javac_opts = ["\"-Xplugin:semanticdb -sourceroot:{} -verbose -targetroot:{}\"".format(execroot, semdb_output)],
     )
+
     return [
         OutputGroupInfo(
             semdb = ([out])
@@ -644,5 +649,7 @@ semanticdb_aspect = aspect(
     implementation = _semanticdb_aspect,
     attr_aspects = ["deps"],
     fragments = ["java"],
-    host_fragments = ["java"]
+    host_fragments = ["java"],
+    required_providers = [JavaInfo],
+#    toolchains = ["JavaToolchainInfo"]
 )
