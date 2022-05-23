@@ -611,11 +611,15 @@ Jcc = provider(
 def _semanticdb_aspect(target, ctx):
     if (not hasattr(ctx.rule.attr, "_java_toolchain")) or (not hasattr(ctx.rule.attr, "srcs")):
       return []
-    print (ctx.build_file_path + " / " + ctx.label.name)
+    print("=========================")
+
+    print (ctx.label.workspace_name + " / " + ctx.build_file_path + " / " + ctx.label.name + " : " + ctx.rule.kind)
+#    _describe("ctx.rule.attr", ctx.rule.attr, [])
+#    _describe("target", target, [])
     plugin_jar = ctx.var["semdb_path"]
     semdb_output = ctx.var["semdb_output"]
     execroot = ctx.var["execroot"]
-    print("execroot={}".format(execroot))
+
     java_exec=ctx.rule.attr._java_toolchain.java_toolchain.java_runtime.java_executable_exec_path
     jvm_opt= ctx.rule.attr._java_toolchain.java_toolchain.jvm_opt
     toolchain=ctx.rule.attr._java_toolchain.java_toolchain
@@ -627,7 +631,12 @@ def _semanticdb_aspect(target, ctx):
         outputs=[semjar]
         )
     out = ctx.actions.declare_file(ctx.label.name + "-with-semdb.jar")
-    deps = [d for dep in ctx.rule.attr.deps for d in (dep[Jcc].jcc if Jcc in dep else []) + ([dep[JavaInfo]] if JavaInfo in dep else [])]
+    # d.label.statsworth("@")
+    deps1 = [d for dep in ctx.rule.attr.deps for d in ([dep[JavaInfo]] if JavaInfo in dep else [])]
+    deps2 = [d for dep in ctx.rule.attr.deps for d in (dep[Jcc].jcc if Jcc in dep and repr(dep.label).startswith("@") else [])]
+    deps = deps1 + deps2
+    for d in ctx.rule.attr.deps:
+        print(d.label)
     jcc = java_common.compile(
         ctx,
         deps = deps,
@@ -651,5 +660,4 @@ semanticdb_aspect = aspect(
     fragments = ["java"],
     host_fragments = ["java"],
     required_providers = [JavaInfo],
-#    toolchains = ["JavaToolchainInfo"]
 )
