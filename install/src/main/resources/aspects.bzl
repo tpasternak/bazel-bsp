@@ -595,12 +595,7 @@ get_cpp_target_info = aspect(
     required_aspect_providers = [[CcInfo]],
 )
 
-
-
-
-
-
-# bazel build  //runner --subcommands  --aspects aspects/semanticdb.bzl%semanticdb_aspect --output_groups=semdb --define=execroot=$(realpath bazel-$(basename $(pwd))) --define=semdb_path=$(cs fetch com.sourcegraph:semanticdb-javac:0.7.8 --classpath) --define=semdb_output=$(pwd)/semdb --nojava_header_compilation
+# bazel build --subcommands --verbose_failures  //...:all  --aspects .bazelbsp/aspects.bzl%semanticdb_aspect --output_groups=semdb --define=execroot=$(realpath bazel-$(basename $(pwd))) --define=semdb_path=$(cs fetch com.sourcegraph:semanticdb-javac:0.7.8 --classpath) --define=semdb_output=$(pwd)/semdb --nojava_header_compilation --spawn_strategy=local
 
 Jcc = provider(
     fields = {
@@ -609,13 +604,10 @@ Jcc = provider(
 )
 
 def _semanticdb_aspect(target, ctx):
-    if (not hasattr(ctx.rule.attr, "_java_toolchain")) or (not hasattr(ctx.rule.attr, "srcs")):
+    if (not hasattr(ctx.rule.attr, "_java_toolchain")) or (not hasattr(ctx.rule.attr, "srcs") or ctx.rule.kind.startswith("kt")):
       return []
     print("=========================")
-
     print (ctx.label.workspace_name + " / " + ctx.build_file_path + " / " + ctx.label.name + " : " + ctx.rule.kind)
-#    _describe("ctx.rule.attr", ctx.rule.attr, [])
-#    _describe("target", target, [])
     plugin_jar = ctx.var["semdb_path"]
     semdb_output = ctx.var["semdb_output"]
     execroot = ctx.var["execroot"]
@@ -631,12 +623,9 @@ def _semanticdb_aspect(target, ctx):
         outputs=[semjar]
         )
     out = ctx.actions.declare_file(ctx.label.name + "-with-semdb.jar")
-    # d.label.statsworth("@")
     deps1 = [d for dep in ctx.rule.attr.deps for d in ([dep[JavaInfo]] if JavaInfo in dep else [])]
     deps2 = [d for dep in ctx.rule.attr.deps for d in (dep[Jcc].jcc if Jcc in dep and repr(dep.label).startswith("@") else [])]
     deps = deps1 + deps2
-    for d in ctx.rule.attr.deps:
-        print(d.label)
     jcc = java_common.compile(
         ctx,
         deps = deps,
