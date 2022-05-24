@@ -64,7 +64,8 @@ public class BazelBspAspectsManager {
             "--define=execroot=" + execroot,
             "--define=semdb_path=" + semdbPluginPath,
             "--define=semdb_output=" + pwd.resolve("semdb"),
-            "--nojava_header_compilation"
+            "--nojava_header_compilation",
+            "--spawn_strategy=local"
     );
     return aspectFlags;
   }

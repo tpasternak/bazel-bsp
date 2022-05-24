@@ -1,3 +1,4 @@
+load("@io_bazel_rules_kotlin//kotlin/internal/jvm:compile.bzl", "kt_jvm_produce_jar_actions2")
 def _scala_compiler_classpath_impl(target, ctx):
     files = depset()
     if hasattr(ctx.rule.attr, "jars"):
@@ -569,6 +570,19 @@ def _print_fields(fields):
     separator = ","
     print(separator.join(fields))
 
+def _describe(name, obj, exclude):
+    """Print the properties of the given struct obj
+    Args:
+      name: the name of the struct we are introspecting.
+      obj: the struct to introspect
+      exclude: a list of names *not* to print (function names)
+    """
+    for k in dir(obj):
+        if hasattr(obj, k) and k not in exclude:
+            v = getattr(obj, k)
+            t = type(v)
+            print("\n%s.%s<%r> = %s" % (name, k, t, v))
+
 def _get_cpp_target_info(target, ctx):
     if CcInfo not in target:
         return []
@@ -603,29 +617,65 @@ Jcc = provider(
     }
 )
 
+
 def _semanticdb_aspect(target, ctx):
-    if (not hasattr(ctx.rule.attr, "_java_toolchain")) or (not hasattr(ctx.rule.attr, "srcs") or ctx.rule.kind.startswith("kt")):
+    if (not hasattr(ctx.rule.attr, "_java_toolchain")) or (not hasattr(ctx.rule.attr, "srcs")):
       return []
-    print("=========================")
-    print (ctx.label.workspace_name + " / " + ctx.build_file_path + " / " + ctx.label.name + " : " + ctx.rule.kind)
+
+    deps1 = [d for dep in ctx.rule.attr.deps for d in ([dep[JavaInfo]] if JavaInfo in dep else [])]
+    deps2 = [d for dep in ctx.rule.attr.deps for d in (dep[Jcc].jcc if Jcc in dep and repr(dep.label).startswith("@") else [])]
+    deps = deps1 + deps2
+    inputs = depset([x for src in ctx.rule.attr.srcs for x in src.files.to_list()])
     plugin_jar = ctx.var["semdb_path"]
     semdb_output = ctx.var["semdb_output"]
     execroot = ctx.var["execroot"]
-
-    java_exec=ctx.rule.attr._java_toolchain.java_toolchain.java_runtime.java_executable_exec_path
-    jvm_opt= ctx.rule.attr._java_toolchain.java_toolchain.jvm_opt
-    toolchain=ctx.rule.attr._java_toolchain.java_toolchain
-    inputs = depset([x for src in ctx.rule.attr.srcs for x in src.files.to_list()])
     semjar = ctx.actions.declare_file("semanticdb_plugin.jar") #todo, logs from plugin are silenced
     semdbJavaInfo = JavaInfo(semjar, semjar)
     ctx.actions.run_shell( # todo use actions.symlink
         command="ln -s {} {} ".format(plugin_jar, semjar.path),
         outputs=[semjar]
         )
+    if ctx.rule.kind.startswith("kt"):
+        tcs = struct(
+          kt = ctx.toolchains["@io_bazel_rules_kotlin//kotlin/internal:kt_toolchain_type"],
+          java = ctx.rule.attr._java_toolchain.java_toolchain,
+          java_runtime = ctx.rule.attr._host_javabase,
+        )
+        kt_res = kt_jvm_produce_jar_actions2(ctx,
+           "kt_jvm_library",
+           tcs,
+           inputs.to_list(),
+           ctx.rule.attr.deps,
+           ctx.rule.attr.runtime_deps,
+           ctx.rule.attr.plugins,
+           ctx.rule.attr.tags,
+           [],
+           "-with-semdb",
+           ["\"-Xplugin:semanticdb -sourceroot:{} -verbose -targetroot:{}\"".format(execroot, semdb_output)]
+           )
+        print ( kt_res)
+        outputs = [x.class_jar for x  in (kt_res.java.outputs.jars) + (kt_res.kt.outputs.jars)]
+        print(outputs)
+        return [
+                 OutputGroupInfo(
+                        semdb = outputs
+                    ),
+                    Jcc(jcc = kt_res.java) # todo provide also kt_res.kt here
+        ]
+
+    java_exec = ctx.rule.attr._java_toolchain.java_toolchain.java_runtime.java_executable_exec_path
+    jvm_opt = ctx.rule.attr._java_toolchain.java_toolchain.jvm_opt
+    toolchain = ctx.rule.attr._java_toolchain.java_toolchain
+
+
     out = ctx.actions.declare_file(ctx.label.name + "-with-semdb.jar")
-    deps1 = [d for dep in ctx.rule.attr.deps for d in ([dep[JavaInfo]] if JavaInfo in dep else [])]
-    deps2 = [d for dep in ctx.rule.attr.deps for d in (dep[Jcc].jcc if Jcc in dep and repr(dep.label).startswith("@") else [])]
-    deps = deps1 + deps2
+
+
+    platform_common.ToolchainInfo(
+        java_runtime= []
+    )
+
+
     jcc = java_common.compile(
         ctx,
         deps = deps,
@@ -635,7 +685,6 @@ def _semanticdb_aspect(target, ctx):
         source_files = inputs.to_list() ,
         javac_opts = ["\"-Xplugin:semanticdb -sourceroot:{} -verbose -targetroot:{}\"".format(execroot, semdb_output)],
     )
-
     return [
         OutputGroupInfo(
             semdb = ([out])
@@ -648,5 +697,6 @@ semanticdb_aspect = aspect(
     attr_aspects = ["deps"],
     fragments = ["java"],
     host_fragments = ["java"],
-    required_providers = [JavaInfo],
+    toolchains = ["@io_bazel_rules_kotlin//kotlin/internal:kt_toolchain_type"],
+#    required_providers = [JavaInfo],
 )
