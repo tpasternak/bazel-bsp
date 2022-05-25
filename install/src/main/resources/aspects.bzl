@@ -1,6 +1,19 @@
 load("@io_bazel_rules_kotlin//kotlin/internal/jvm:compile.bzl", "kt_jvm_produce_jar_actions2")
 load("@io_bazel_rules_kotlin//kotlin/internal:defs.bzl", "KtJvmInfo")
 load("@io_bazel_rules_kotlin//kotlin/internal/jvm:associates.bzl", "associate_utils")
+load(
+    "@io_bazel_rules_kotlin//kotlin/internal:defs.bzl",
+    _KtJvmInfo = "KtJvmInfo",
+)
+load(
+    "@io_bazel_rules_kotlin//kotlin/internal/utils:sets.bzl",
+    _sets = "sets",
+)
+load(
+    "@io_bazel_rules_kotlin//kotlin/internal/utils:utils.bzl",
+    _utils = "utils",
+)
+
 def _scala_compiler_classpath_impl(target, ctx):
     files = depset()
     if hasattr(ctx.rule.attr, "jars"):
@@ -619,6 +632,45 @@ Jcc = provider(
         "targets" : "targets"
     }
 )
+def get_associates(ctx):
+    """Creates a struct of associates meta data"""
+
+    friends_legacy = getattr(ctx.rule.attr, "friends", [])
+    associates = getattr(ctx.rule.attr, "associates", [])
+
+    if friends_legacy:
+        print("WARNING: friends=[...] is deprecated, please prefer associates=[...] instead.")
+        if associates:
+            fail("friends= may not be used together with associates=. Use one or the other.")
+        elif ctx.rule.attr.testonly == False:
+            fail("Only testonly targets can use the friends attribute. ")
+        else:
+            associates = friends_legacy
+
+    if not bool(associates):
+        return struct(
+            targets = [],
+            module_name = _utils.derive_module_name(ctx),
+            jars = [],
+        )
+    elif ctx.rule.attr.module_name:
+        fail("if associates have been set then module_name cannot be provided")
+    else:
+        jars = [depset([a], transitive = a.kt.module_jars) for a in associates]
+        module_names = _sets.copy_of([x.kt.module_name for x in associates])
+        if len(module_names) > 1:
+            fail("Dependencies from several different kotlin modules cannot be associated. " +
+                 "Associates can see each other's \"internal\" members, and so must only be " +
+                 "used with other targets in the same module: \n%s" % module_names)
+        if len(module_names) < 1:
+            # This should be impossible
+            fail("Error in rules - a KtJvmInfo was found which did not have a module_name")
+        return struct(
+            targets = associates,
+            jars = jars,
+            module_name = list(module_names)[0],
+        )
+
 
 def _semanticdb_aspect(target, ctx):
     if (not hasattr(ctx.rule.attr, "_java_toolchain")) or (not hasattr(ctx.rule.attr, "srcs")):
@@ -632,11 +684,14 @@ def _semanticdb_aspect(target, ctx):
     depTargetsFromDeps =  [t for dep in ctx.rule.attr.deps if Jcc in dep for t in dep[Jcc].targets ]
 
     associates = associate_utils.get_associates(ctx)
+    associates3 = get_associates(ctx)
+    print(target.label)
+    print("associates1: {})".format(associates))
+    print("associates2: {})".format(getattr(ctx.rule.attr, "associates", [])))
+    print("associates3: {})".format(associates3))
 
-    print("associates: {})".format(associates))
-    print(associates)
     depTargetsFromAssociates = ctx.rule.attr.associates if hasattr(ctx.rule.attr, "associates") else []
-    depTargets = [d for d in depTargetsFromRules + depTargetsFromDeps + depTargetsFromAssociates if JavaInfo in d]
+    depTargets = [d for d in depTargetsFromRules + depTargetsFromDeps if JavaInfo in d]
 
     inputs = depset([x for src in ctx.rule.attr.srcs for x in src.files.to_list()])
     plugin_jar = ctx.var["semdb_path"]
@@ -654,8 +709,6 @@ def _semanticdb_aspect(target, ctx):
           java = ctx.rule.attr._java_toolchain.java_toolchain,
           java_runtime = ctx.rule.attr._host_javabase,
         )
-        for i in inputs.to_list():
-            print("input: {}".format (i))
         kt_res = kt_jvm_produce_jar_actions2(ctx,
            "kt_jvm_library",
            tcs,
@@ -667,7 +720,8 @@ def _semanticdb_aspect(target, ctx):
            [],
            "-with-semdb",
            ["\"-Xplugin:semanticdb -sourceroot:{} -verbose -targetroot:{}\"".format(execroot, semdb_output)],
-           associates
+           associates3,
+           [JavaPluginInfo([semdbJavaInfo], processor_class= None)]
            )
 
         outputs = [x.class_jar for x  in (kt_res.java.outputs.jars) + (kt_res.kt.outputs.jars)]
