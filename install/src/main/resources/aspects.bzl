@@ -14,6 +14,16 @@ load(
     _utils = "utils",
 )
 
+load("@io_bazel_rules_scala//scala/private:rule_impls.bzl", "compile_scala")
+load("@io_bazel_rules_scala//scala/private:common.bzl", "write_manifest_file")
+
+load(
+    "@io_bazel_rules_scala//scala/private:common_attributes.bzl",
+    "common_attrs",
+    "common_attrs_for_plugin_bootstrapping",
+    "implicit_deps",
+    "resolve_deps",
+)
 def _scala_compiler_classpath_impl(target, ctx):
     files = depset()
     if hasattr(ctx.rule.attr, "jars"):
@@ -596,7 +606,7 @@ def _describe(name, obj, exclude):
         if hasattr(obj, k) and k not in exclude:
             v = getattr(obj, k)
             t = type(v)
-            print("\n%s.%s<%r> = %s" % (name, k, t, v))
+            print("%s.%s<%r> = %s" % (name, k, t, v))
 
 def _get_cpp_target_info(target, ctx):
     if CcInfo not in target:
@@ -671,7 +681,6 @@ def get_associates(ctx):
             module_name = list(module_names)[0],
         )
 
-
 def _semanticdb_aspect(target, ctx):
     if (not hasattr(ctx.rule.attr, "_java_toolchain")) or (not hasattr(ctx.rule.attr, "srcs")):
       return []
@@ -685,10 +694,6 @@ def _semanticdb_aspect(target, ctx):
 
     associates = associate_utils.get_associates(ctx)
     associates3 = get_associates(ctx)
-    print(target.label)
-    print("associates1: {})".format(associates))
-    print("associates2: {})".format(getattr(ctx.rule.attr, "associates", [])))
-    print("associates3: {})".format(associates3))
 
     depTargetsFromAssociates = ctx.rule.attr.associates if hasattr(ctx.rule.attr, "associates") else []
     depTargets = [d for d in depTargetsFromRules + depTargetsFromDeps if JavaInfo in d]
@@ -703,12 +708,67 @@ def _semanticdb_aspect(target, ctx):
         command="ln -s {} {} ".format(plugin_jar, semjar.path),
         outputs=[semjar]
         )
+
+
+    if(ctx.rule.kind.startswith("scala")):
+        print(ctx.rule.attr._scala_toolchain[0].files_to_run)
+
+        out = ctx.actions.declare_file(ctx.label.name + "-with-semdb.jar")
+        manifest = ctx.actions.declare_file(ctx.label.name + "-manifest-with-semdb.jar")
+        statsfile = ctx.actions.declare_file(ctx.label.name + "-statsfile-with-semdb.jar")
+        diagnosticsFile = ctx.actions.declare_file(ctx.label.name + "-diagnostics-with-semdb.jar")
+
+        write_manifest_file(ctx.actions, manifest, None)
+        _describe("ctx.rule.attr", ctx.rule.attr._scalac.data_runfiles, [])
+
+        res = compile_scala(
+            ctx,
+            target_label = "target_label",
+            output = out,
+            manifest =manifest,
+            statsfile =statsfile,
+            diagnosticsfile =diagnosticsFile,
+            sources= inputs.to_list(),
+            cjars = ctx.rule.attr._scalac.data_runfiles.files,
+            all_srcjars = depset([]),
+            transitive_compile_jars = ctx.rule.attr._scalac.data_runfiles,
+            plugins =[],
+            resource_strip_prefix =[],
+            resources =[],
+            resource_jars =[],
+            labels =[],
+            in_scalacopts =[],
+            print_compile_time =False,
+            expect_java_output =False,
+            scalac_jvm_flags=[],
+            scalac= ctx.rule.attr._scalac.files.to_list()[1],
+            dependency_info= struct(use_analyzer = False,
+                                    dependency_mode = "direct",
+                                    strict_deps_mode = "off",
+                                    unused_deps_mode = "off",
+                                    dependency_tracking_method = "bazinga",
+                                    need_indirect_info = False,
+                                    need_direct_info = False),
+            unused_dependency_checker_ignored_targets=[]
+        )
+        return [
+
+                                OutputGroupInfo(
+                                  semdb = [out, statsfile, diagnosticsFile]
+                                ),
+                                Jcc(
+                                  jcc = deps,
+                                  targets = depTargets
+                                       )
+                       ]
+
     if ctx.rule.kind.startswith("kt"):
         tcs = struct(
           kt = ctx.toolchains["@io_bazel_rules_kotlin//kotlin/internal:kt_toolchain_type"],
           java = ctx.rule.attr._java_toolchain.java_toolchain,
           java_runtime = ctx.rule.attr._host_javabase,
         )
+
         kt_res = kt_jvm_produce_jar_actions2(ctx,
            "kt_jvm_library",
            tcs,
@@ -733,14 +793,12 @@ def _semanticdb_aspect(target, ctx):
                  Jcc(
                    jcc = [kt_res.java] +deps  + [kt_res.kt],
                    targets = depTargets
-                        )
+                 )
         ]
 
     java_exec = ctx.rule.attr._java_toolchain.java_toolchain.java_runtime.java_executable_exec_path
     jvm_opt = ctx.rule.attr._java_toolchain.java_toolchain.jvm_opt
     toolchain = ctx.rule.attr._java_toolchain.java_toolchain
-
-    out = ctx.actions.declare_file(ctx.label.name + "-with-semdb.jar")
 
     jcc = java_common.compile(
         ctx,
@@ -764,6 +822,6 @@ semanticdb_aspect = aspect(
     attr_aspects = ["deps", "associates"],
     fragments = ["java"],
     host_fragments = ["java"],
-    toolchains = ["@io_bazel_rules_kotlin//kotlin/internal:kt_toolchain_type"],
+    toolchains = ["@io_bazel_rules_kotlin//kotlin/internal:kt_toolchain_type", "@io_bazel_rules_scala//scala:toolchain_type"],
 #    required_providers = [JavaInfo],
 )
