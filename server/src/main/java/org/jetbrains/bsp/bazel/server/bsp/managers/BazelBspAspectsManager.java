@@ -12,7 +12,6 @@ import org.jetbrains.bsp.bazel.workspacecontext.TargetsSpec;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 
 public class BazelBspAspectsManager {
@@ -52,9 +51,9 @@ public class BazelBspAspectsManager {
   public static Array<String> semanticDbFlags(InternalAspectsResolver aspectsResolver) throws IOException, InterruptedException {
     var pwd = Paths.get(System.getProperty("user.dir"));
     var execroot = Paths.get("bazel-" + pwd.getFileName()).toRealPath();
-    var semdbPluginProcess = Runtime.getRuntime().exec(new String[]{"cs", "fetch", "com.sourcegraph:semanticdb-javac:0.7.8", "--classpath"});
-    semdbPluginProcess.waitFor();
-    var semdbPluginPath = CharStreams.toString(new InputStreamReader(semdbPluginProcess.getInputStream(), Charsets.UTF_8)).strip().trim();
+
+    String semdbPluginPath = coursierFetchPlugin("com.sourcegraph:semanticdb-javac:0.7.8");
+    String semdbScalacPluginPath = coursierFetchPlugin("org.scalameta:semanticdb-scalac_2.12.14:4.5.8");
     var aspectFlags = Array.of(
             BazelFlag.repositoryOverride(
                     Constants.ASPECT_REPOSITORY, aspectsResolver.getBazelBspRoot()),
@@ -63,10 +62,18 @@ public class BazelBspAspectsManager {
             "--output_groups=semdb",
             "--define=execroot=" + execroot,
             "--define=semdb_path=" + semdbPluginPath,
+            "--define=semdb_javac_path=" + semdbScalacPluginPath,
             "--define=semdb_output=" + pwd.resolve("semdb"),
             "--nojava_header_compilation",
             "--spawn_strategy=local"
     );
     return aspectFlags;
+  }
+
+private static String coursierFetchPlugin(String pluginCoordinates) throws IOException, InterruptedException {
+    var semdbPluginProcess = Runtime.getRuntime().exec(new String[]{"cs", "fetch", pluginCoordinates, "--classpath", "--exclude", "org.scala-lang:scala-library"});
+    semdbPluginProcess.waitFor();
+    var semdbPluginPath = CharStreams.toString(new InputStreamReader(semdbPluginProcess.getInputStream(), Charsets.UTF_8)).strip().trim();
+    return semdbPluginPath;
   }
 }

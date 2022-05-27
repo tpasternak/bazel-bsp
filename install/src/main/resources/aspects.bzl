@@ -1,6 +1,7 @@
 load("@io_bazel_rules_kotlin//kotlin/internal/jvm:compile.bzl", "kt_jvm_produce_jar_actions2")
 load("@io_bazel_rules_kotlin//kotlin/internal:defs.bzl", "KtJvmInfo")
 load("@io_bazel_rules_kotlin//kotlin/internal/jvm:associates.bzl", "associate_utils")
+
 load(
     "@io_bazel_rules_kotlin//kotlin/internal:defs.bzl",
     _KtJvmInfo = "KtJvmInfo",
@@ -688,29 +689,21 @@ def _semanticdb_aspect(target, ctx):
     deps = deps1 + deps2
     depTargetsFromRules = ctx.rule.attr.deps
     depTargetsFromDeps =  [t for dep in ctx.rule.attr.deps if Jcc in dep for t in dep[Jcc].targets ]
-
     associates = associate_utils.get_associates(ctx)
     associates3 = get_associates(ctx)
 
     depTargetsFromAssociates = ctx.rule.attr.associates if hasattr(ctx.rule.attr, "associates") else []
     depTargets = [d for d in depTargetsFromRules + depTargetsFromDeps if JavaInfo in d]
-
     inputs = depset([x for src in ctx.rule.attr.srcs for x in src.files.to_list()])
     plugin_jar = ctx.var["semdb_path"]
     scalac_plugin_jar = ctx.var["semdb_scalac_path"]
     semdb_output = ctx.var["semdb_output"]
     execroot = ctx.var["execroot"]
-
     semdbJavaInfo = get_plugin(ctx, plugin_jar,"semanticdb_plugin.jar") #todo, logs from plugin are silenced
 
-
-
     if(ctx.rule.kind.startswith("scala")):
-        # todo for some reason this requires "bazel build /scala_library1" before
         out = ctx.actions.declare_file(ctx.label.name + "-with-semdb.jar")
-        scalac_options = [
-            "-Xplugin:{}".format(scalac_plugin_jar)
-        ]
+        scalac_options = ["-Xplugin:{}".format(scalac_plugin_jar)]
 
         manifest = ctx.actions.declare_file(ctx.label.name + "-manifest-with-semdb.jar")
         statsfile = ctx.actions.declare_file(ctx.label.name + "-statsfile-with-semdb.jar")
@@ -738,7 +731,7 @@ def _semanticdb_aspect(target, ctx):
             print_compile_time =False,
             expect_java_output =False,
             scalac_jvm_flags= [],
-            scalac= ctx.rule.attr._scalac.files.to_list()[1],
+            scalac= ctx.rule.attr._scalac.files_to_run,
             dependency_info= struct(use_analyzer = False,
                                     dependency_mode = "direct",
                                     strict_deps_mode = "off",
@@ -758,7 +751,7 @@ def _semanticdb_aspect(target, ctx):
                                   targets = depTargets
                                        )
                   ]
-
+    """
     if ctx.rule.kind.startswith("kt"):
         out = ctx.actions.declare_file(ctx.label.name + "-with-semdb.jar")
         tcs = struct(
@@ -793,6 +786,7 @@ def _semanticdb_aspect(target, ctx):
                    targets = depTargets
                  )
         ]
+    """
     if ctx.rule.kind.startswith("java") and hasattr(ctx.rule.attr, "_java_toolchain"):
         out = ctx.actions.declare_file(ctx.label.name + "-with-semdb.jar")
         java_exec = ctx.rule.attr._java_toolchain.java_toolchain.java_runtime.java_executable_exec_path
@@ -816,6 +810,7 @@ def _semanticdb_aspect(target, ctx):
                 targets = depTargets)
         ]
     return []
+
 semanticdb_aspect = aspect(
     implementation = _semanticdb_aspect,
     attr_aspects = ["deps", "associates"],
