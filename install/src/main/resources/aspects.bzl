@@ -1,20 +1,20 @@
-load("@io_bazel_rules_kotlin//kotlin/internal/jvm:compile.bzl", "kt_jvm_produce_jar_actions2")
-load("@io_bazel_rules_kotlin//kotlin/internal:defs.bzl", "KtJvmInfo")
-load("@io_bazel_rules_kotlin//kotlin/internal/jvm:associates.bzl", "associate_utils")
-
-load(
-    "@io_bazel_rules_kotlin//kotlin/internal:defs.bzl",
-    _KtJvmInfo = "KtJvmInfo",
-)
-load(
-    "@io_bazel_rules_kotlin//kotlin/internal/utils:sets.bzl",
-    _sets = "sets",
-)
-load(
-    "@io_bazel_rules_kotlin//kotlin/internal/utils:utils.bzl",
-    _utils = "utils",
-)
-
+# load("@io_bazel_rules_kotlin//kotlin/internal/jvm:compile.bzl", "kt_jvm_produce_jar_actions2")
+# load("@io_bazel_rules_kotlin//kotlin/internal:defs.bzl", "KtJvmInfo")
+# load("@io_bazel_rules_kotlin//kotlin/internal/jvm:associates.bzl", "associate_utils")
+#
+# load(
+#     "@io_bazel_rules_kotlin//kotlin/internal:defs.bzl",
+#     _KtJvmInfo = "KtJvmInfo",
+# )
+# load(
+#     "@io_bazel_rules_kotlin//kotlin/internal/utils:sets.bzl",
+#     _sets = "sets",
+# )
+# load(
+#     "@io_bazel_rules_kotlin//kotlin/internal/utils:utils.bzl",
+#     _utils = "utils",
+# )
+#
 load("@io_bazel_rules_scala//scala/private:rule_impls.bzl", "compile_scala")
 load("@io_bazel_rules_scala//scala/private:common.bzl", "write_manifest_file")
 
@@ -630,8 +630,8 @@ Jcc = provider(
         "targets" : "targets"
     }
 )
+"""
 def get_associates(ctx):
-    """Creates a struct of associates meta data"""
 
     friends_legacy = getattr(ctx.rule.attr, "friends", [])
     associates = getattr(ctx.rule.attr, "associates", [])
@@ -668,7 +668,7 @@ def get_associates(ctx):
             jars = jars,
             module_name = list(module_names)[0],
         )
-
+"""
 def get_plugin(ctx, plugin_path, output_name):
     semjar = ctx.actions.declare_file(output_name) #todo, logs from plugin are silenced
 
@@ -680,26 +680,38 @@ def get_plugin(ctx, plugin_path, output_name):
     return JavaPluginInfo([semdbJavaInfo], processor_class= None)
 
 def _semanticdb_aspect(target, ctx):
-    if (not hasattr(ctx.rule.attr, "deps")) or (not hasattr(ctx.rule.attr, "srcs")):
+    if (not hasattr(ctx.rule.attr, "deps")) or (not hasattr(ctx.rule.attr, "srcs") or "@" in repr(target.label)):
       return []
 
-    deps1 = [d for dep in ctx.rule.attr.deps for d in ([dep[JavaInfo]] if JavaInfo in dep else [])] #todo kotlin java info
-    deps2 = [d for dep in ctx.rule.attr.deps for d in (dep[Jcc].jcc if Jcc in dep and repr(dep.label).startswith("@") else [])]
-    deps3 = [d.kt for d in ctx.rule.attr.deps if KtJvmInfo in d] #todo kotlin java info # contains Target type
+    deps1 = [d for dep in ctx.rule.attr.deps for d in ([dep[JavaInfo]] if JavaInfo in dep else [])]
+    deps2 = [d for dep in ctx.rule.attr.deps for d in (dep[Jcc].jcc if Jcc in dep else [])]
+
     deps = deps1 + deps2
-    depTargetsFromRules = ctx.rule.attr.deps
-    depTargetsFromDeps =  [t for dep in ctx.rule.attr.deps if Jcc in dep for t in dep[Jcc].targets ]
+
+    for dep in deps:
+        if("com_google_protobuf" in repr(dep)):
+            #print(dep.full_compile_jars)
+            pass
+
+
+    """#kotlin
+    deps3 = [d.kt for d in ctx.rule.attr.deps if KtJvmInfo in d] #todo kotlin java info # contains Target type
     associates = associate_utils.get_associates(ctx)
     associates3 = get_associates(ctx)
-
-    depTargetsFromAssociates = ctx.rule.attr.associates if hasattr(ctx.rule.attr, "associates") else []
-    depTargets = [d for d in depTargetsFromRules + depTargetsFromDeps if JavaInfo in d]
+    """
     inputs = depset([x for src in ctx.rule.attr.srcs for x in src.files.to_list()])
     plugin_jar = ctx.var["semdb_path"]
     scalac_plugin_jar = ctx.var["semdb_scalac_path"]
     semdb_output = ctx.var["semdb_output"]
     execroot = ctx.var["execroot"]
     semdbJavaInfo = get_plugin(ctx, plugin_jar,"semanticdb_plugin.jar") #todo, logs from plugin are silenced
+
+    depTargetsFromRules = ctx.rule.attr.deps
+    depTargetsFromDeps =  [t for dep in ctx.rule.attr.deps if Jcc in dep for t in dep[Jcc].targets ]
+    depTargetsFromAssociates = ctx.rule.attr.associates if hasattr(ctx.rule.attr, "associates") else []
+    depTargets = [d for d in depTargetsFromRules + depTargetsFromDeps if JavaInfo in d]
+
+
 
     if(ctx.rule.kind.startswith("scala")):
         out = ctx.actions.declare_file(ctx.label.name + "-with-semdb.jar")
@@ -721,7 +733,7 @@ def _semanticdb_aspect(target, ctx):
             sources= inputs.to_list(),
             cjars = ctx.rule.attr._scalac.data_runfiles.files,
             all_srcjars = depset([]),
-            transitive_compile_jars = [], #= ctx.rule.attr._scalac.data_runfiles,
+            transitive_compile_jars = [],
             plugins =[],
             resource_strip_prefix =[],
             resources =[],
@@ -788,7 +800,13 @@ def _semanticdb_aspect(target, ctx):
         ]
     """
     if ctx.rule.kind.startswith("java") and hasattr(ctx.rule.attr, "_java_toolchain"):
+        new_outputs = [target.files.to_list()]
+
         out = ctx.actions.declare_file(ctx.label.name + "-with-semdb.jar")
+        if("lite" in repr(target)):
+          print(out)
+          print(dir(target.label))
+          print(repr(target.label))
         java_exec = ctx.rule.attr._java_toolchain.java_toolchain.java_runtime.java_executable_exec_path
         jvm_opt = ctx.rule.attr._java_toolchain.java_toolchain.jvm_opt
         toolchain = ctx.rule.attr._java_toolchain.java_toolchain
