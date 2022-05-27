@@ -622,7 +622,7 @@ get_cpp_target_info = aspect(
     required_aspect_providers = [[CcInfo]],
 )
 
-# bazel build --subcommands --verbose_failures  //...:all  --aspects .bazelbsp/aspects.bzl%semanticdb_aspect --output_groups=semdb --define=execroot=$(realpath bazel-$(basename $(pwd))) --define=semdb_path=$(cs fetch com.sourcegraph:semanticdb-javac:0.7.8 --classpath) --define=semdb_output=$(pwd)/semdb --nojava_header_compilation --spawn_strategy=local
+# bazel build  --verbose_failures  --aspects .bazelbsp/aspects.bzl%semanticdb_aspect --output_groups=semdb --define=execroot=$(readlink bazel-$(basename $(pwd))) --define=semdb_path=$(cs fetch com.sourcegraph:semanticdb-javac:0.7.8 --classpath) --define=semdb_output=$(pwd)/semdb --nouse_ijars --nojava_header_compilation --spawn_strategy=local --javacopt="-XepDisableAllChecks" --define=semdb_scalac_path=$(cs fetch org.scalameta:semanticdb-scalac_2.12.14:4.5.8 --exclude org.scala-lang:scala-library) //...:all
 
 Jcc = provider(
     fields = {
@@ -679,38 +679,37 @@ def get_plugin(ctx, plugin_path, output_name):
         )
     return JavaPluginInfo([semdbJavaInfo], processor_class= None)
 
+def alljars(dep):
+     return [o.class_jar for o in dep.java_outputs] + dep.compile_jars.to_list()
+
 def _semanticdb_aspect(target, ctx):
-    if (not hasattr(ctx.rule.attr, "deps")) or (not hasattr(ctx.rule.attr, "srcs") or "@" in repr(target.label)):
+
+    if ("@" in repr(target.label) or ctx.rule.kind.startswith("kt_")):
       return []
+    deps1 = [d for dep in getattr(ctx.rule.attr, "deps", []) + getattr(ctx.rule.attr,"exports", []) for d in ([dep[JavaInfo]] if JavaInfo in dep else [])] # todo- do something with these exports
+    deps2 = [d for dep in getattr(ctx.rule.attr, "deps", []) + getattr(ctx.rule.attr,"exports", []) for d in (dep[Jcc].jcc if Jcc in dep else [])]
+    deps0 = deps1 + deps2
 
-    deps1 = [d for dep in ctx.rule.attr.deps for d in ([dep[JavaInfo]] if JavaInfo in dep else [])]
-    deps2 = [d for dep in ctx.rule.attr.deps for d in (dep[Jcc].jcc if Jcc in dep else [])]
-
-    deps = deps1 + deps2
-
-    for dep in deps:
-        if("com_google_protobuf" in repr(dep)):
-            #print(dep.full_compile_jars)
-            pass
-
+    semdbdeps = [cjar.path[:-len("-with-semdb.jar")] + ".jar" for dep in deps0 for cjar in alljars(dep) if "-with-semdb" in cjar.basename]
+    nosemdbdeps = [dep for dep in deps0 if not any([x.path in semdbdeps for x in alljars(dep)  ] )]
+    deps = nosemdbdeps
 
     """#kotlin
     deps3 = [d.kt for d in ctx.rule.attr.deps if KtJvmInfo in d] #todo kotlin java info # contains Target type
     associates = associate_utils.get_associates(ctx)
     associates3 = get_associates(ctx)
     """
-    inputs = depset([x for src in ctx.rule.attr.srcs for x in src.files.to_list()])
+    inputs = depset([x for src in getattr(ctx.rule.attr, "srcs",[]) for x in src.files.to_list()])
     plugin_jar = ctx.var["semdb_path"]
     scalac_plugin_jar = ctx.var["semdb_scalac_path"]
     semdb_output = ctx.var["semdb_output"]
     execroot = ctx.var["execroot"]
     semdbJavaInfo = get_plugin(ctx, plugin_jar,"semanticdb_plugin.jar") #todo, logs from plugin are silenced
 
-    depTargetsFromRules = ctx.rule.attr.deps
-    depTargetsFromDeps =  [t for dep in ctx.rule.attr.deps if Jcc in dep for t in dep[Jcc].targets ]
+    depTargetsFromRules = getattr(ctx.rule.attr, "deps", [])
+    depTargetsFromDeps =  [t for dep in depTargetsFromRules if Jcc in dep for t in dep[Jcc].targets ]
     depTargetsFromAssociates = ctx.rule.attr.associates if hasattr(ctx.rule.attr, "associates") else []
     depTargets = [d for d in depTargetsFromRules + depTargetsFromDeps if JavaInfo in d]
-
 
 
     if(ctx.rule.kind.startswith("scala")):
@@ -800,17 +799,12 @@ def _semanticdb_aspect(target, ctx):
         ]
     """
     if ctx.rule.kind.startswith("java") and hasattr(ctx.rule.attr, "_java_toolchain"):
-        new_outputs = [target.files.to_list()]
-
-        out = ctx.actions.declare_file(ctx.label.name + "-with-semdb.jar")
-        if("lite" in repr(target)):
-          print(out)
-          print(dir(target.label))
-          print(repr(target.label))
+        new_outputs = [t.basename[:-4] + "-with-semdb.jar" for t in target.files.to_list()]
+        new_outputs2 = [t.class_jar.basename[:-4] + "-with-semdb.jar" for t in target[JavaInfo].outputs.jars]
+        out = ctx.actions.declare_file(new_outputs2[0])
         java_exec = ctx.rule.attr._java_toolchain.java_toolchain.java_runtime.java_executable_exec_path
         jvm_opt = ctx.rule.attr._java_toolchain.java_toolchain.jvm_opt
         toolchain = ctx.rule.attr._java_toolchain.java_toolchain
-
         jcc = java_common.compile(
             ctx,
             deps = deps,
@@ -820,18 +814,26 @@ def _semanticdb_aspect(target, ctx):
             source_files = inputs.to_list() ,
             javac_opts = ["\"-Xplugin:semanticdb -sourceroot:{} -verbose -targetroot:{}\"".format(execroot, semdb_output)],
         )
+
         return [
             OutputGroupInfo(
                 semdb = ([out])
             ),
             Jcc(jcc = [jcc] + deps,
-                targets = depTargets)
+                targets = depTargets
+                )
         ]
-    return []
+    #return []
+    return [
+        Jcc(
+            jcc = deps,
+            targets = depTargets
+        )
+    ]
 
 semanticdb_aspect = aspect(
     implementation = _semanticdb_aspect,
-    attr_aspects = ["deps", "associates"],
+    attr_aspects = ["deps", "associates", "exports"],
     fragments = ["java"],
     host_fragments = ["java"],
     toolchains = ["@io_bazel_rules_kotlin//kotlin/internal:kt_toolchain_type", "@io_bazel_rules_scala//scala:toolchain_type"],
