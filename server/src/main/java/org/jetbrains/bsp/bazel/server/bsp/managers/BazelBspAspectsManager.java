@@ -65,7 +65,7 @@ public class BazelBspAspectsManager {
             "--define=semdb_javac_path=" + semdbScalacPluginPath,
             "--define=semdb_output=" + pwd.resolve("semdb"),
             "--nojava_header_compilation",
-            "--nouse_ijars"
+            "--nouse_ijars",
             "--spawn_strategy=local"
     );
     return aspectFlags;
