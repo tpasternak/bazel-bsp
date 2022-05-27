@@ -62,7 +62,7 @@ public class BazelBspAspectsManager {
             "--output_groups=semdb",
             "--define=execroot=" + execroot,
             "--define=semdb_path=" + semdbPluginPath,
-            "--define=semdb_javac_path=" + semdbScalacPluginPath,
+            "--define=semdb_scalac_path=" + semdbScalacPluginPath,
             "--define=semdb_output=" + pwd.resolve("semdb"),
             "--nojava_header_compilation",
             "--nouse_ijars",
