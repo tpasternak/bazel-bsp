@@ -1,6 +1,7 @@
 package org.jetbrains.bsp.bazel.server.sync
 
 import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterNot
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
@@ -11,7 +12,13 @@ import org.jetbrains.bsp.bazel.info.BspTargetInfo.TargetInfo
 import org.jetbrains.bsp.bazel.server.sync.dependencytree.DependencyTree
 import org.jetbrains.bsp.bazel.server.sync.languages.LanguagePlugin
 import org.jetbrains.bsp.bazel.server.sync.languages.LanguagePluginsService
-import org.jetbrains.bsp.bazel.server.sync.model.*
+import org.jetbrains.bsp.bazel.server.sync.model.Label
+import org.jetbrains.bsp.bazel.server.sync.model.Language
+import org.jetbrains.bsp.bazel.server.sync.model.Library
+import org.jetbrains.bsp.bazel.server.sync.model.Module
+import org.jetbrains.bsp.bazel.server.sync.model.Project
+import org.jetbrains.bsp.bazel.server.sync.model.SourceSet
+import org.jetbrains.bsp.bazel.server.sync.model.Tag
 import org.jetbrains.bsp.bazel.workspacecontext.WorkspaceContext
 import java.net.URI
 
@@ -30,17 +37,38 @@ class BazelProjectMapper(
         val dependencyTree = DependencyTree(rootTargets, targets)
         val targetsToImport = selectTargetsToImport(workspaceContext, rootTargets, dependencyTree)
         val modulesFromBazel = createModules(targetsToImport, dependencyTree)
+        val librariesToImport = createLibraries(targets.filter { isExternalLibrary(it) })
         val workspaceRoot = bazelPathsResolver.workspaceRoot()
         val modifiedModules = modifyModules(modulesFromBazel, workspaceRoot, workspaceContext)
         val sourceToTarget = buildReverseSourceMapping(modifiedModules)
-        return Project(workspaceRoot, modifiedModules.toList(), sourceToTarget)
+        return Project(workspaceRoot, modifiedModules.toList(), sourceToTarget, librariesToImport)
     }
+
+    private fun isExternalLibrary(it: Map.Entry<String, TargetInfo>) = it.key.matches("@(.+)//.+".toRegex())
+
+    private fun createLibraries(libraryTargets: Map<String, TargetInfo>): Map<String, Library> {
+        return libraryTargets.mapValues { entry ->
+            val targetId = entry.key
+            val targetInfo = entry.value
+            Library(
+                    targetId,
+                    getTargetJarUris(targetInfo),
+                    targetInfo.dependenciesList.map { it.id }
+            )
+        }
+    }
+
+    private fun getTargetJarUris(targetInfo: TargetInfo) =
+            targetInfo.javaTargetInfo.jarsList
+                    .flatMap { it.binaryJarsList }
+                    .map { bazelPathsResolver.resolve(it).toUri() }
+                    .toSet()
 
     private fun selectTargetsToImport(
         workspaceContext: WorkspaceContext, rootTargets: Set<String>, tree: DependencyTree
     ): Sequence<TargetInfo> = tree.allTargetsAtDepth(
         workspaceContext.importDepth.value, rootTargets
-    ).asSequence().filter(::isWorkspaceTarget)
+    ).asSequence()
 
     private fun isWorkspaceTarget(target: TargetInfo): Boolean = target.id.startsWith(bazelInfo.release.mainRepositoryReferencePrefix())
 
@@ -48,6 +76,7 @@ class BazelProjectMapper(
         targetsToImport: Sequence<TargetInfo>, dependencyTree: DependencyTree
     ): Sequence<Module> = runBlocking {
         targetsToImport.asFlow()
+            .filter { isWorkspaceTarget(it) }
             .map { createModule(it, dependencyTree) }
             .filterNot { it.tags.contains(Tag.NO_IDE) }
             .toList()
