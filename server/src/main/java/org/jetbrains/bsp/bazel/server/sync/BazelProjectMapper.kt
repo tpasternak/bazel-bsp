@@ -46,17 +46,16 @@ class BazelProjectMapper(
 
     private fun isExternalLibrary(it: Map.Entry<String, TargetInfo>) = it.key.matches("@(.+)//.+".toRegex())
 
-    private fun createLibraries(libraryTargets: Map<String, TargetInfo>): Map<String, Library> {
-        return libraryTargets.mapValues { entry ->
-            val targetId = entry.key
-            val targetInfo = entry.value
-            Library(
-                    targetId,
-                    getTargetJarUris(targetInfo),
-                    targetInfo.dependenciesList.map { it.id }
-            )
-        }
-    }
+    private fun createLibraries(libraryTargets: Map<String, TargetInfo>): Map<String, Library> =
+            libraryTargets.mapValues { entry ->
+                val targetId = entry.key
+                val targetInfo = entry.value
+                Library(
+                        targetId,
+                        getTargetJarUris(targetInfo),
+                        targetInfo.dependenciesList.map { it.id }
+                )
+            }
 
     private fun getTargetJarUris(targetInfo: TargetInfo) =
             targetInfo.javaTargetInfo.jarsList
