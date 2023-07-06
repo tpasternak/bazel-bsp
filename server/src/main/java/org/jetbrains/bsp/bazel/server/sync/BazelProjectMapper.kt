@@ -44,7 +44,7 @@ class BazelProjectMapper(
         return Project(workspaceRoot, modifiedModules.toList(), sourceToTarget, librariesToImport)
     }
 
-    private fun isExternalLibrary(it: Map.Entry<String, TargetInfo>) = it.key.matches("@(.+)//.+".toRegex())
+    private fun isExternalLibrary(it: Map.Entry<String, TargetInfo>) = it.key.matches("@(.+)//.+".toRegex()) || it.value.kind == "java_import"
 
     private fun createLibraries(libraryTargets: Map<String, TargetInfo>): Map<String, Library> =
             libraryTargets.mapValues { entry ->
